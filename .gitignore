@@ -1,0 +1,13 @@
+#Large machine learning model
+models/random_forest.pkl
+
+#Python virtual environment 
+venv/ 
+.venv/
+
+#Python cache
+__python__/
+*.pyc
+
+#Environment secrets
+.env

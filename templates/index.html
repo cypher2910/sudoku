@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Sudoku</title>
+<style>
+body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; background: radial-gradient(1200px 600px at 10% 10%, #0b1220 0%, #091016 60%, #060a10 100%); color: #e6edf3 }
+.header { display:flex; align-items:center; justify-content:space-between; padding: 20px 24px; background: linear-gradient(90deg,#0f172a,#111827); border-bottom: 1px solid #1f2937 }
+.title { font-weight: 700; letter-spacing: .5px }
+.brand { display:flex; align-items:center; gap:10px }
+.brand-dot { width:10px; height:10px; border-radius:50%; background: conic-gradient(from 180deg, #22d3ee, #a78bfa, #22d3ee) }
+.container { padding: 24px; display: grid; grid-template-columns: 1fr 320px; gap: 24px }
+.panel { background: rgba(17,24,39,.6); backdrop-filter: blur(8px); padding: 16px; border: 1px solid #1f2937; border-radius: 14px; box-shadow: 0 20px 30px rgba(0,0,0,.3) }
+.controls { display: flex; gap: 12px; margin-bottom: 16px }
+.controls.hidden { display: none }
+select, button { background: #0b1324; color: #e6edf3; border: 1px solid #1f2937; padding: 8px 12px; border-radius: 10px }
+button { transition: transform .08s ease, box-shadow .2s ease; box-shadow: 0 8px 14px rgba(34,211,238,.1) }
+button:hover { transform: translateY(-1px); box-shadow: 0 14px 24px rgba(167,139,250,.15) }
+.board { display: grid; grid-template-columns: repeat(9, 48px); grid-template-rows: repeat(9, 48px); gap: 4px; background: linear-gradient(180deg,#0b1324,#0b1324); padding: 10px; border-radius: 12px }
+.cell { width: 48px; height: 48px; background: #0a1222; color: #dbeafe; text-align: center; font-size: 18px; border: 1px solid #1f2a3a; border-radius: 10px; outline: none; transition: box-shadow .15s ease, background .15s ease }
+.cell:hover { box-shadow: 0 0 0 2px #22d3ee44 }
+.cell.selected { box-shadow: 0 0 0 2px #a78bfa88; background: #0f1b33 }
+.fixed { background: #0e1629 }
+.box-sep { border-right: 2px solid #334155 }
+.row-sep { border-bottom: 2px solid #334155 }
+.chat { display: flex; flex-direction: column; gap: 12px }
+.chat-messages { height: 320px; overflow: auto; background: #0a111f; border: 1px solid #1f2937; padding: 10px; border-radius: 10px }
+.msg { margin: 6px 0; white-space: pre-wrap }
+.msg.user { color: #8ab4f8 }
+.msg.bot { color: #86efac }
+.pad { display:grid; grid-template-columns: repeat(9, 36px); gap:8px; margin-top:12px }
+.pad button { width:36px; height:36px; border-radius:10px; background:#0a1222; border:1px solid #1f2937 }
+.status { display:flex; align-items:center; justify-content:space-between; margin-top:8px; font-size:13px; color:#94a3b8 }
+.screen { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; background: rgba(2,6,23,.8); backdrop-filter: blur(8px); z-index: 20 }
+.screen.hidden { display:none }
+.screen-card { width: 420px; background: rgba(17,24,39,.9); border: 1px solid #1f2937; border-radius: 16px; padding: 20px; box-shadow: 0 20px 40px rgba(0,0,0,.5) }
+.screen-title { font-size: 20px; font-weight: 700; margin-bottom: 10px }
+.screen-sub { color: #9ca3af; margin-bottom: 14px }
+.difficulty-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px }
+.difficulty-grid button { padding: 10px 8px }
+.container.hidden { display:none }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="brand">
+    <div class="brand-dot"></div>
+    <div class="title">AI Sudoku</div>
+  </div>
+  <div class="status">
+    <div id="statusText">Ready</div>
+  </div>
+</div>
+<div class="controls">
+  <select id="difficulty">
+    <option value="easy">Easy</option>
+    <option value="medium" selected>Medium</option>
+    <option value="hard">Hard</option>
+  </select>
+  <button id="newGame">New Game</button>
+  <button id="hint">Hint</button>
+  <button id="solve">Solve</button>
+</div>
+<div class="screen" id="startScreen">
+  <div class="screen-card">
+    <div class="screen-title">Choose Difficulty</div>
+    <div class="screen-sub">Select easy, medium, or hard to start your game.</div>
+    <div class="difficulty-grid">
+      <button data-diff="easy">Easy</button>
+      <button data-diff="medium">Medium</button>
+      <button data-diff="hard">Hard</button>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="panel">
+    <div id="board" class="board"></div>
+    <div class="pad" id="numPad"></div>
+  </div>
+  <div class="panel">
+    <div class="chat">
+      <div class="chat-messages" id="chatMessages"></div>
+      <div>
+        <input id="chatInput" placeholder="Ask for a hint or strategy">
+        <button id="chatSend">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const boardEl = document.getElementById('board')
+let puzzle = Array.from({length: 9}, () => Array(9).fill(0))
+let fixed = Array.from({length: 9}, () => Array(9).fill(false))
+let selected = null
+const startScreen = document.getElementById('startScreen')
+const controls = document.querySelector('.controls')
+const container = document.querySelector('.container')
+function drawBoard() {
+  boardEl.innerHTML = ''
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const inp = document.createElement('input')
+      inp.className = 'cell'
+      if (fixed[r][c]) inp.classList.add('fixed')
+      if ((c+1) % 3 === 0 && c < 8) inp.classList.add('box-sep')
+      if ((r+1) % 3 === 0 && r < 8) inp.classList.add('row-sep')
+      inp.value = puzzle[r][c] ? puzzle[r][c] : ''
+      inp.maxLength = 1
+      inp.dataset.r = r
+      inp.dataset.c = c
+      inp.onclick = () => {
+        document.querySelectorAll('.cell').forEach(el => el.classList.remove('selected'))
+        selected = {r, c}
+        inp.classList.add('selected')
+      }
+      inp.oninput = async (e) => {
+        const v = e.target.value.replace(/[^1-9]/g, '')
+        e.target.value = v
+        if (!v) return
+        const row = parseInt(e.target.dataset.r)
+        const col = parseInt(e.target.dataset.c)
+        const val = parseInt(v)
+        const res = await fetch('/api/validate-move', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({board: puzzle, row, col, val})
+        })
+        const out = await res.json()
+        if (out.valid) {
+          puzzle[row][col] = val
+          setStatus('Move placed')
+        } else {
+          e.target.value = ''
+          setStatus('Invalid move')
+        }
+      }
+      inp.disabled = fixed[r][c]
+      boardEl.appendChild(inp)
+    }
+  }
+}
+async function newGame() {
+  const d = document.getElementById('difficulty').value
+  const res = await fetch('/api/new-game?difficulty='+d)
+  const out = await res.json()
+  puzzle = out.puzzle
+  fixed = Array.from({length:9}, (_,r)=>Array.from({length:9},(_,c)=>puzzle[r][c]!==0))
+  drawBoard()
+  buildPad()
+  setStatus('New game started')
+}
+function showStartScreen() {
+  startScreen.classList.remove('hidden')
+  controls.classList.add('hidden')
+  container.classList.add('hidden')
+}
+function startWithDifficulty(d) {
+  document.getElementById('difficulty').value = d
+  startScreen.classList.add('hidden')
+  controls.classList.remove('hidden')
+  container.classList.remove('hidden')
+  newGame()
+}
+document.querySelectorAll('[data-diff]').forEach(btn => {
+  btn.onclick = () => startWithDifficulty(btn.dataset.diff)
+})
+document.getElementById('newGame').onclick = newGame
+document.getElementById('hint').onclick = async () => {
+  const res = await fetch('/api/hint', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({board: puzzle})
+  })
+  const out = await res.json()
+  if (out.hint) {
+    const {row, col, val} = out.hint
+    puzzle[row][col] = val
+    drawBoard()
+    buildPad()
+    setStatus('Hint applied')
+  }
+}
+document.getElementById('solve').onclick = async () => {
+  const res = await fetch('/api/solve', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({board: puzzle})
+  })
+  const out = await res.json()
+  if (out.solution) {
+    puzzle = out.solution
+    fixed = Array.from({length:9}, (_,r)=>Array.from({length:9},(_,c)=>true))
+    drawBoard()
+    setStatus('Solved')
+  }
+}
+const chatBox = document.getElementById('chatMessages')
+function addMsg(who, text) {
+  const div = document.createElement('div')
+  div.className = 'msg ' + who
+  div.textContent = (who==='user'?'You: ':'AI: ') + text
+  chatBox.appendChild(div)
+  chatBox.scrollTop = chatBox.scrollHeight
+}
+document.getElementById('chatSend').onclick = async () => {
+  const input = document.getElementById('chatInput')
+  const msg = input.value.trim()
+  if (!msg) return
+  addMsg('user', msg)
+  input.value = ''
+  const res = await fetch('/api/chat', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({message: msg, board: puzzle})
+  })
+  const out = await res.json()
+  addMsg('bot', out.reply)
+}
+function buildPad() {
+  const pad = document.getElementById('numPad')
+  pad.innerHTML = ''
+  for (let i=1;i<=9;i++) {
+    const b = document.createElement('button')
+    b.textContent = i
+    b.onclick = async () => {
+      if (!selected) return
+      const {r,c} = selected
+      if (fixed[r][c]) return
+      const val = i
+      const res = await fetch('/api/validate-move', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({board: puzzle, row:r, col:c, val})
+      })
+      const out = await res.json()
+      if (out.valid) {
+        puzzle[r][c] = val
+        drawBoard()
+        buildPad()
+        setStatus('Move placed')
+      } else {
+        setStatus('Invalid move')
+      }
+    }
+    pad.appendChild(b)
+  }
+}
+function setStatus(t) {
+  const s = document.getElementById('statusText')
+  s.textContent = t
+}
+showStartScreen()
+</script>
+</body>
+</html>
